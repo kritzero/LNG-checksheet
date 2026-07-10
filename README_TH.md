@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#164e63">
+  <title>LNG Field Inspection</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">LNG FIELD INSPECTION</p>
+        <h1 id="pageTitle">เข้าสู่ระบบ</h1>
+        <p id="siteLabel" class="site-label"></p>
+      </div>
+      <span class="version">v3.2</span>
+    </header>
+
+    <main id="app"></main>
+
+    <nav id="bottomNav" class="bottom-nav hidden">
+      <button data-page="overview">Overview</button>
+      <button data-page="instruments">Instrument</button>
+      <button data-page="valves">Valve</button>
+      <button data-page="comments">Comment</button>
+      <button data-page="summary">Summary</button>
+    </nav>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
