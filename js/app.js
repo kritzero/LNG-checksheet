@@ -1,13 +1,80 @@
 
+const RUNTIME_STATE_KEY = "lng-inspection-v4-runtime";
+
 const state = {
   page: "login",
+  loggedIn: false,
+  username: "",
   selectedSiteIndex: null,
   currentInstrumentIndex: null,
+  inputMethod: "",
+  cameraPending: false,
   previewUrl: "",
   aiValue: "",
+  pendingInstrumentPhotoDataUrl: "",
   editingCommentId: null,
   pendingCommentImages: []
 };
+
+function restoreRuntimeState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RUNTIME_STATE_KEY) || "null");
+    if (!saved || typeof saved !== "object") return;
+
+    state.loggedIn = Boolean(saved.loggedIn);
+    state.username = saved.username || "";
+    state.selectedSiteIndex = Number.isInteger(saved.selectedSiteIndex)
+      && saved.selectedSiteIndex >= 0
+      && saved.selectedSiteIndex < MASTER_SITES.length
+      ? saved.selectedSiteIndex
+      : null;
+    state.currentInstrumentIndex = Number.isInteger(saved.currentInstrumentIndex)
+      ? saved.currentInstrumentIndex
+      : null;
+    state.inputMethod = saved.inputMethod || "";
+    state.cameraPending = Boolean(saved.cameraPending);
+
+    const allowedPages = new Set([
+      "sites", "overview", "instruments", "instrumentAction", "instrumentManual",
+      "instrumentIssue", "flameCheck", "valves", "comments", "commentEditor", "summary"
+    ]);
+
+    if (!state.loggedIn) {
+      state.page = "login";
+    } else if (allowedPages.has(saved.page)) {
+      state.page = saved.page;
+    } else {
+      state.page = state.selectedSiteIndex === null ? "sites" : "overview";
+    }
+
+    // A photo File/Object URL cannot survive a full Android browser reload.
+    // Restore the technician to the same tag action page rather than Login.
+    if (state.cameraPending && state.currentInstrumentIndex !== null) {
+      state.page = "instrumentAction";
+    }
+  } catch (error) {
+    console.warn("Runtime state restore failed:", error);
+  }
+}
+
+function saveRuntimeState() {
+  try {
+    localStorage.setItem(RUNTIME_STATE_KEY, JSON.stringify({
+      page: state.page,
+      loggedIn: state.loggedIn,
+      username: state.username,
+      selectedSiteIndex: state.selectedSiteIndex,
+      currentInstrumentIndex: state.currentInstrumentIndex,
+      inputMethod: state.inputMethod,
+      cameraPending: state.cameraPending,
+      savedAt: new Date().toISOString()
+    }));
+  } catch (error) {
+    console.warn("Runtime state save failed:", error);
+  }
+}
+
+restoreRuntimeState();
 
 const app = document.getElementById("app");
 const pageTitle = document.getElementById("pageTitle");
@@ -94,6 +161,7 @@ function notify(message) {
 
 function navigate(page) {
   state.page = page;
+  saveRuntimeState();
   render();
 }
 
@@ -163,8 +231,12 @@ function renderLogin() {
       document.getElementById("username").value.trim(),
       document.getElementById("password").value
     );
-    if (result.ok) navigate("sites");
-    else notify("กรุณากรอก Username และ Password");
+    if (result.ok) {
+      state.loggedIn = true;
+      state.username = result.user?.username || document.getElementById("username").value.trim();
+      state.cameraPending = false;
+      navigate("sites");
+    } else notify("กรุณากรอก Username และ Password");
   });
 }
 
@@ -386,11 +458,15 @@ function renderInstrumentAction() {
 
   document.getElementById("takePhotoAction").addEventListener("click", () => {
     state.inputMethod = "camera";
+    state.cameraPending = true;
+    saveRuntimeState();
     cameraInput.click();
   });
 
   document.getElementById("choosePhotoAction").addEventListener("click", () => {
     state.inputMethod = "gallery";
+    state.cameraPending = true;
+    saveRuntimeState();
     galleryInput.click();
   });
 
@@ -415,6 +491,8 @@ async function handleInstrumentPhoto(event) {
   const file = input.files && input.files[0];
 
   if (!file) {
+    state.cameraPending = false;
+    saveRuntimeState();
     notify("ไม่ได้เลือกรูป");
     return;
   }
@@ -453,9 +531,13 @@ async function handleInstrumentPhoto(event) {
     }
 
     state.aiValue = result.value || "";
+    state.cameraPending = false;
+    saveRuntimeState();
     navigate("instrumentReview");
 
   } catch (error) {
+    state.cameraPending = false;
+    saveRuntimeState();
     console.error("Photo processing error:", error);
     notify("เกิดข้อผิดพลาดในการอ่านรูป");
   } finally {
@@ -502,6 +584,7 @@ function renderInstrumentReview() {
     saveDraft();
     notify(`✅ ${item.tag} Saved`);
     state.pendingInstrumentPhotoDataUrl = "";
+    state.cameraPending = false;
     navigate("instruments");
     scrollToTopSoon();
   });
@@ -910,8 +993,9 @@ function renderSummary() {
   }).join("");
 
   const valveRows = draft.valves.map(item => {
-    const icon = item.position === "OPEN" ? "🟢" : item.position === "CLOSE" ? "🔴" : "⬜";
-    return `<div class="summary-row"><b>${icon} ${escapeHtml(item.tag)}</b><span>${escapeHtml(item.position || "ยังไม่ตรวจ")}</span></div>`;
+    const icon = item.position === "OPEN" ? "🟢" : item.position === "CLOSE" ? "🔴" : item.position === "PROBLEM" ? "🟠" : "⬜";
+    const label = item.position === "PROBLEM" ? "ปัญหา" : (item.position || "ยังไม่ตรวจ");
+    return `<div class="summary-row"><b>${icon} ${escapeHtml(item.tag)}</b><span>${escapeHtml(label)}</span></div>`;
   }).join("");
 
   const commentRows = draft.comments.length
@@ -1026,4 +1110,13 @@ bottomNav.addEventListener("click", event => {
   if (button) navigate(button.dataset.page);
 });
 
+window.addEventListener("pagehide", saveRuntimeState);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") saveRuntimeState();
+});
+
 render();
+
+if (state.cameraPending) {
+  setTimeout(() => notify("กลับมาที่ Tag เดิมแล้ว กรุณาถ่ายรูปอีกครั้งหากรูปไม่ถูกส่งกลับ"), 350);
+}

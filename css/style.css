@@ -171,3 +171,11 @@ button.outline{background:#fff;color:var(--blue);border:1px solid #93c5fd}
 @media (min-width:380px){
   .module-grid{grid-template-columns:1fr 1fr}
 }
+
+/* v4.0: enforce requested two-column valve layout and Android cache refresh */
+.valve-card-header{display:flex!important;align-items:center!important;justify-content:space-between!important}
+.valve-actions{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;gap:10px!important}
+.valve-actions button{width:100%!important;margin:0!important}
+.status-card.valve-card.open{background:#dcfce7!important;border-color:#22c55e!important}
+.status-card.valve-card.close{background:#fee2e2!important;border-color:#ef4444!important}
+.status-card.valve-card.problem{background:#ffedd5!important;border-color:#f97316!important}
