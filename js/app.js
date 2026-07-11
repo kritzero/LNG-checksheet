@@ -131,6 +131,7 @@ function render() {
     instruments: renderInstruments,
     instrumentAction: renderInstrumentAction,
     instrumentReview: renderInstrumentReview,
+    instrumentManual: renderInstrumentManual,
     instrumentIssue: renderInstrumentIssue,
     flameCheck: renderFlameCheck,
     valves: renderValves,
@@ -300,7 +301,8 @@ function renderInstruments() {
       if (item.flameStatus === "Alarm") css = "flame-alarm";
     } else if (item.status === "completed") {
       icon = "✅";
-      detail = `${item.value} ${item.unit}`;
+      const methodLabel = item.inputMethod === "manual" ? "พิมพ์เอง" : item.inputMethod === "gallery" ? "จาก Gallery" : "ถ่ายรูป";
+      detail = `${item.value} ${item.unit} • ${methodLabel}`;
     } else if (item.status === "issue") {
       icon = "⚠️";
       detail = item.issueComment;
@@ -310,7 +312,7 @@ function renderInstruments() {
     const card = document.createElement("div");
     card.className = `list-card ${css}`;
     card.innerHTML = `
-      <div class="icon">${icon}</div>
+      ${item.photoDataUrl ? `<img class="instrument-thumb" src="${item.photoDataUrl}" alt="${escapeHtml(item.tag)} photo">` : `<div class="icon">${icon}</div>`}
       <div class="grow">
         <h3>${escapeHtml(item.tag)}</h3>
         <p>${escapeHtml(item.description || "")}${item.description ? " • " : ""}${escapeHtml(detail)}</p>
@@ -333,25 +335,77 @@ function renderInstrumentAction() {
   pageTitle.textContent = item.tag;
 
   app.innerHTML = `
-    <p class="muted">${escapeHtml(item.description || "")}${item.description ? " • " : ""}Unit: ${escapeHtml(item.unit)}</p>
+    <p class="muted">
+      ${escapeHtml(item.description || "")}
+      ${item.description ? " • " : ""}
+      Unit: ${escapeHtml(item.unit)}
+    </p>
 
-    <label class="action-card">
-      <h3>📷 ถ่ายรูปและอ่านค่าด้วย AI</h3>
-      <p>เปิดกล้องหลังหรือเลือกรูปจากเครื่อง</p>
-      <input id="instrumentPhoto" type="file" accept="image/*">
-    </label>
+    <div class="action-card action-primary" id="takePhotoAction">
+      <h3>📷 ถ่ายรูป</h3>
+      <p>เปิดกล้องหลังและอ่านค่าด้วย AI</p>
+    </div>
 
-    <div class="action-card" id="reportIssue">
-      <h3>📝 ส่ง Comment แทนรูป</h3>
+    <div class="action-card action-gallery" id="choosePhotoAction">
+      <h3>🖼️ เลือกรูปจากเครื่อง</h3>
+      <p>เลือกรูปที่ถ่ายไว้แล้ว</p>
+    </div>
+
+    <div class="action-card action-manual" id="manualEntryAction">
+      <h3>⌨️ พิมพ์ค่าเอง</h3>
+      <p>ใช้เมื่อไม่ต้องการใช้ AI หรือ AI อ่านค่าไม่ได้</p>
+    </div>
+
+    <input
+      id="cameraInput"
+      type="file"
+      accept="image/*"
+      capture="environment"
+      hidden
+    >
+
+    <input
+      id="galleryInput"
+      type="file"
+      accept="image/*"
+      hidden
+    >
+
+    <div class="action-card action-issue" id="reportIssue">
+      <h3>📝 ส่ง Comment แทนค่า</h3>
       <p>ใช้เมื่ออุปกรณ์เสีย จอดับ หรือเข้าถึงไม่ได้</p>
     </div>
 
     <button class="secondary" id="backToInstrumentList">กลับ</button>
   `;
 
-  document.getElementById("instrumentPhoto").addEventListener("change", handleInstrumentPhoto);
-  document.getElementById("reportIssue").addEventListener("click", () => navigate("instrumentIssue"));
-  document.getElementById("backToInstrumentList").addEventListener("click", () => navigate("instruments"));
+  const cameraInput = document.getElementById("cameraInput");
+  const galleryInput = document.getElementById("galleryInput");
+
+  document.getElementById("takePhotoAction").addEventListener("click", () => {
+    state.inputMethod = "camera";
+    cameraInput.click();
+  });
+
+  document.getElementById("choosePhotoAction").addEventListener("click", () => {
+    state.inputMethod = "gallery";
+    galleryInput.click();
+  });
+
+  cameraInput.addEventListener("change", handleInstrumentPhoto);
+  galleryInput.addEventListener("change", handleInstrumentPhoto);
+
+  document.getElementById("manualEntryAction").addEventListener("click", () => {
+    navigate("instrumentManual");
+  });
+
+  document.getElementById("reportIssue").addEventListener("click", () => {
+    navigate("instrumentIssue");
+  });
+
+  document.getElementById("backToInstrumentList").addEventListener("click", () => {
+    navigate("instruments");
+  });
 }
 
 async function handleInstrumentPhoto(event) {
@@ -375,9 +429,17 @@ async function handleInstrumentPhoto(event) {
     }
 
     state.previewUrl = URL.createObjectURL(file);
-    notify("กำลังจำลอง AI อ่านค่า...");
+    app.innerHTML = `
+      <section class="ai-loading-card">
+        <img class="photo-preview" src="${state.previewUrl}" alt="Instrument photo">
+        <div class="ai-spinner"></div>
+        <h3>AI กำลังอ่านค่า...</h3>
+        <p class="muted">กรุณารอสักครู่</p>
+      </section>
+    `;
 
     const item = currentDraft().instruments[state.currentInstrumentIndex];
+    state.pendingInstrumentPhotoDataUrl = await resizeImage(file, 480, 0.60);
 
     await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -431,12 +493,71 @@ function renderInstrumentReview() {
     Object.assign(item, {
       status: "completed",
       value,
-      issueComment: ""
+      issueComment: "",
+      inputMethod: state.inputMethod || "camera",
+      photoDataUrl: state.pendingInstrumentPhotoDataUrl || item.photoDataUrl || ""
     });
     saveDraft();
-    notify("✓ Saved");
+    notify(`✅ ${item.tag} Saved`);
+    state.pendingInstrumentPhotoDataUrl = "";
     navigate("instruments");
     scrollToTopSoon();
+  });
+}
+
+function renderInstrumentManual() {
+  const item = currentDraft().instruments[state.currentInstrumentIndex];
+  pageTitle.textContent = `กรอกค่า ${item.tag}`;
+
+  app.innerHTML = `
+    <section class="card">
+      <p class="muted">${escapeHtml(item.description || "")}</p>
+
+      <label>ค่าที่อ่านได้</label>
+      <div class="manual-value-wrap">
+        <input
+          id="manualReadingValue"
+          type="number"
+          inputmode="decimal"
+          step="any"
+          placeholder="0.00"
+          value="${item.inputMethod === "manual" ? escapeHtml(item.value || "") : ""}"
+          autofocus
+        >
+        <span>${escapeHtml(item.unit)}</span>
+      </div>
+    </section>
+
+    <div class="button-row">
+      <button class="secondary" id="cancelManualButton">กลับ</button>
+      <button id="saveManualButton">บันทึก</button>
+    </div>
+  `;
+
+  document.getElementById("saveManualButton").addEventListener("click", () => {
+    const value = document.getElementById("manualReadingValue").value.trim();
+
+    if (!value) {
+      notify("กรุณากรอกค่า");
+      return;
+    }
+
+    Object.assign(item, {
+      status: "completed",
+      value,
+      issueComment: "",
+      inputMethod: "manual",
+      photoDataUrl: ""
+    });
+
+    saveDraft();
+    notify(`✅ ${item.tag} Saved`);
+    navigate("instruments");
+    scrollToTopSoon();
+  });
+
+  document.getElementById("cancelManualButton").addEventListener("click", () => {
+    navigate("instrumentAction");
   });
 }
 
@@ -463,10 +584,12 @@ function renderInstrumentIssue() {
     Object.assign(item, {
       status: "issue",
       value: "",
-      issueComment: text
+      issueComment: text,
+      inputMethod: "issue",
+      photoDataUrl: ""
     });
     saveDraft();
-    notify("✓ Saved");
+    notify(`✅ ${item.tag} Saved`);
     navigate("instruments");
     scrollToTopSoon();
   });
@@ -564,7 +687,7 @@ function renderValves() {
     card.innerHTML = `
       <h3>${escapeHtml(item.tag)}</h3>
       <p class="muted">${escapeHtml(item.description || "")}</p>
-      <div class="segmented">
+      <div class="segmented valve-actions">
         <button class="open ${item.position === "OPEN" ? "active" : ""}" data-position="OPEN">🟢 OPEN</button>
         <button class="close ${item.position === "CLOSE" ? "active" : ""}" data-position="CLOSE">🔴 CLOSE</button>
       </div>
@@ -575,7 +698,7 @@ function renderValves() {
         draft.valves[originalIndex].position = button.dataset.position;
         draft.valves[originalIndex].status = "completed";
         saveDraft();
-        notify(`${item.tag}: ${button.dataset.position}`);
+        notify(`✅ ${item.tag}: ${button.dataset.position} Saved`);
         renderValves();
         scrollToTopSoon();
       });
@@ -766,13 +889,17 @@ function renderSummary() {
       detail = item.flameStatus + (item.flameComment ? `: ${item.flameComment}` : "");
     } else if (item.status === "completed") {
       icon = "✅";
-      detail = `${item.value} ${item.unit}`;
+      const methodLabel = item.inputMethod === "manual" ? "พิมพ์เอง" : item.inputMethod === "gallery" ? "จาก Gallery" : "ถ่ายรูป";
+      detail = `${item.value} ${item.unit} • ${methodLabel}`;
     } else if (item.status === "issue") {
       icon = "⚠️";
       detail = item.issueComment;
     }
 
-    return `<div class="summary-row"><b>${icon} ${escapeHtml(item.tag)}</b><span>${escapeHtml(detail)}</span></div>`;
+    return `<div class="summary-row summary-instrument-row">
+      ${item.photoDataUrl ? `<img class="summary-thumb" src="${item.photoDataUrl}" alt="${escapeHtml(item.tag)} photo">` : ""}
+      <div><b>${icon} ${escapeHtml(item.tag)}</b><span>${escapeHtml(detail)}</span></div>
+    </div>`;
   }).join("");
 
   const valveRows = draft.valves.map(item => {
@@ -796,7 +923,7 @@ function renderSummary() {
     <div class="summary-section-title">Comments</div>
     <section class="card">${commentRows}</section>
 
-    <button id="submitButton">Submit Checksheet</button>
+    <button class="submit-checksheet" id="submitButton">Submit Checksheet</button>
     <button class="secondary" id="backToOverview">กลับไปแก้ไข</button>
   `;
 

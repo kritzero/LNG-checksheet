@@ -123,3 +123,40 @@ button.outline{background:#fff;color:var(--blue);border:1px solid #93c5fd}
   z-index:50;font-size:14px;white-space:nowrap
 }
 .hidden{display:none!important}
+
+
+/* v3.4 mobile UX upgrade */
+.action-card{
+  min-height:88px;display:flex;flex-direction:column;justify-content:center;
+  padding:18px 18px 18px 20px;transition:transform .12s ease,box-shadow .12s ease;
+  border-left:6px solid #94a3b8;
+}
+.action-card:active{transform:scale(.985);box-shadow:0 3px 10px rgba(15,23,42,.08)}
+.action-card h3{font-size:18px}
+.action-primary{border-left-color:#0f766e;background:linear-gradient(135deg,#fff,#ecfdf5)}
+.action-gallery{border-left-color:#2563eb;background:linear-gradient(135deg,#fff,#eff6ff)}
+.action-manual{border-left-color:#7c3aed;background:linear-gradient(135deg,#fff,#f5f3ff)}
+.action-issue{border-left-color:#f59e0b;background:linear-gradient(135deg,#fff,#fffbeb)}
+.instrument-thumb{
+  width:52px;height:52px;border-radius:14px;object-fit:cover;flex:0 0 auto;
+  border:2px solid #fff;box-shadow:0 2px 8px rgba(15,23,42,.16)
+}
+.ai-loading-card{text-align:center;padding:8px 0 24px}
+.ai-loading-card h3{margin:16px 0 0}
+.ai-spinner{
+  width:42px;height:42px;margin:20px auto 0;border-radius:50%;
+  border:4px solid #cbd5e1;border-top-color:var(--primary);animation:spin .8s linear infinite
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.manual-value-wrap{display:flex;align-items:center;gap:10px;margin-top:8px}
+.manual-value-wrap input{font-size:30px;font-weight:800;text-align:center;padding:18px 12px}
+.manual-value-wrap span{font-size:18px;font-weight:700;min-width:70px;color:var(--primary2)}
+.valve-actions{grid-template-columns:1fr}
+.valve-actions button{min-height:58px;font-size:18px}
+.summary-instrument-row{display:flex;align-items:center;gap:12px}
+.summary-instrument-row>div{min-width:0;flex:1}
+.summary-thumb{width:58px;height:58px;object-fit:cover;border-radius:13px;flex:0 0 auto}
+.submit-checksheet{min-height:60px;font-size:18px;box-shadow:0 8px 18px rgba(37,99,235,.25)}
+@media (min-width:380px){
+  .module-grid{grid-template-columns:1fr 1fr}
+}
