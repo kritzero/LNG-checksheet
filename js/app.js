@@ -302,7 +302,7 @@ function renderOverview() {
   const remainingValve = draft.valves.filter(v => v.status !== "completed").slice(0, 4).map(v => v.tag);
 
   app.innerHTML = `
-    <section class="card">
+    <section class="card overall-progress-card ${completed === total ? "complete" : "pending"}">
       <div class="flex-between"><b>Overall Progress</b><span>${completed} / ${total}</span></div>
       <div class="progress-track"><div class="progress-bar" style="width:${total ? completed / total * 100 : 0}%"></div></div>
       <div class="muted">Last saved: ${formatTime(draft.lastSavedAt || draft.startedAt)}</div>
@@ -381,10 +381,11 @@ function renderInstruments() {
     let css = done ? "completed" : "pending";
 
     if (item.checkType === "flame") {
-      icon = item.flameStatus === "Alarm" ? "🔴" : item.flameStatus === "Normal" ? "🟢" : "🔥";
+      icon = item.flameStatus === "Alarm" ? "🔴" : item.flameStatus === "Normal" ? "🟢" : item.flameStatus === "Problem" ? "🟠" : "🔥";
       detail = item.flameStatus || "Pending";
       if (item.flameComment) detail += ` • ${item.flameComment}`;
       if (item.flameStatus === "Alarm") css = "flame-alarm";
+      if (item.flameStatus === "Problem") css = "flame-problem-state";
     } else if (item.status === "completed") {
       icon = "✅";
       const methodLabel = item.inputMethod === "manual" ? "พิมพ์เอง" : item.inputMethod === "gallery" ? "จาก Gallery" : "ถ่ายรูป";
@@ -792,18 +793,30 @@ function renderFlameCheck() {
   const item = currentDraft().instruments[state.currentInstrumentIndex];
   pageTitle.textContent = item.tag;
 
+  const selectedState = item.flameStatus || "";
+  const needsComment = selectedState === "Alarm" || selectedState === "Problem";
+  const commentLabel = selectedState === "Problem" ? "รายละเอียดปัญหา (Required)" : "Comment (Required เมื่อ Alarm)";
+  const commentPlaceholder = selectedState === "Problem" ? "เช่น Detector เสีย, ไฟไม่เข้า หรือเข้าถึงไม่ได้" : "รายละเอียด Alarm";
+
   app.innerHTML = `
-    <section class="status-card ${item.flameStatus === "Normal" ? "normal" : item.flameStatus === "Alarm" ? "alarm" : ""}">
-      <h3>${escapeHtml(item.description || item.tag)}</h3>
-      <p class="muted">Current Status</p>
-      <div class="segmented">
-        <button class="normal ${item.flameStatus === "Normal" ? "active" : ""}" data-status="Normal">🟢 Normal</button>
-        <button class="alarm ${item.flameStatus === "Alarm" ? "active" : ""}" data-status="Alarm">🔴 Alarm</button>
+    <section class="status-card flame-card ${selectedState === "Normal" ? "normal" : selectedState === "Alarm" ? "alarm" : selectedState === "Problem" ? "problem" : ""}">
+      <div class="flame-card-header">
+        <div>
+          <h3>${escapeHtml(item.tag)}</h3>
+          <p class="muted">${escapeHtml(item.description || "Flame Detector")}</p>
+        </div>
+        <button class="flame-problem ${selectedState === "Problem" ? "active" : ""}" data-status="Problem">ปัญหา</button>
       </div>
-      <div id="flameCommentArea" class="${item.flameStatus === "Alarm" ? "" : "hidden"}">
-        <label>Comment (Required เมื่อ Alarm)</label>
-        <textarea id="flameComment" placeholder="รายละเอียด Alarm">${escapeHtml(item.flameComment || "")}</textarea>
-        <button id="saveFlameComment">บันทึก Comment</button>
+
+      <div class="segmented flame-actions">
+        <button class="normal ${selectedState === "Normal" ? "active" : ""}" data-status="Normal">NORMAL</button>
+        <button class="alarm ${selectedState === "Alarm" ? "active" : ""}" data-status="Alarm">ALARM</button>
+      </div>
+
+      <div id="flameCommentArea" class="${needsComment ? "" : "hidden"}">
+        <label>${commentLabel}</label>
+        <textarea id="flameComment" placeholder="${commentPlaceholder}">${escapeHtml(item.flameComment || "")}</textarea>
+        <button id="saveFlameComment">บันทึก</button>
       </div>
     </section>
     <button class="secondary" id="backFromFlame">กลับ</button>
@@ -817,14 +830,15 @@ function renderFlameCheck() {
         item.flameStatus = "Normal";
         item.flameComment = "";
         saveDraft();
-        notify("✓ Normal saved");
+        notify(`✅ ${item.tag}: Normal Saved`);
         navigate("instruments");
         scrollToTopSoon();
-      } else {
-        item.flameStatus = "Alarm";
-        saveDraft();
-        renderFlameCheck();
+        return;
       }
+
+      item.flameStatus = selected;
+      saveDraft();
+      renderFlameCheck();
     });
   });
 
@@ -833,13 +847,12 @@ function renderFlameCheck() {
     saveComment.addEventListener("click", () => {
       const text = document.getElementById("flameComment").value.trim();
       if (!text) {
-        notify("Alarm ต้องใส่ Comment");
+        notify(item.flameStatus === "Problem" ? "ปัญหาต้องใส่รายละเอียด" : "Flame Alarm ต้องใส่ Comment");
         return;
       }
-      item.flameStatus = "Alarm";
       item.flameComment = text;
       saveDraft();
-      notify("✓ Alarm saved");
+      notify(`✅ ${item.tag}: ${item.flameStatus === "Problem" ? "ปัญหา" : "Alarm"} Saved`);
       navigate("instruments");
       scrollToTopSoon();
     });
@@ -1076,13 +1089,18 @@ function renderSummary() {
   const draft = currentDraft();
   pageTitle.textContent = "Summary ก่อน Submit";
 
+  const instrumentDone = draft.instruments.filter(isInstrumentDone).length;
+  const valveDone = draft.valves.filter(v => v.status === "completed").length;
+  const total = draft.instruments.length + draft.valves.length;
+  const completed = instrumentDone + valveDone;
+
   const instrumentRows = draft.instruments.map(item => {
     let icon = "⬜";
     let detail = "ยังไม่ตรวจ";
 
     if (item.checkType === "flame" && item.flameStatus) {
-      icon = item.flameStatus === "Alarm" ? "🔴" : "🟢";
-      detail = item.flameStatus + (item.flameComment ? `: ${item.flameComment}` : "");
+      icon = item.flameStatus === "Alarm" ? "🔴" : item.flameStatus === "Problem" ? "🟠" : "🟢";
+      detail = (item.flameStatus === "Problem" ? "ปัญหา" : item.flameStatus) + (item.flameComment ? `: ${item.flameComment}` : "");
     } else if (item.status === "completed") {
       icon = "✅";
       const methodLabel = item.inputMethod === "manual" ? "พิมพ์เอง" : item.inputMethod === "gallery" ? "จาก Gallery" : "ถ่ายรูป";
@@ -1120,6 +1138,12 @@ function renderSummary() {
     <div class="summary-section-title">Comments</div>
     <section class="card">${commentRows}</section>
 
+    <section class="card overall-progress-card ${completed === total ? "complete" : "pending"}">
+      <div class="flex-between"><b>Overall Progress</b><span>${completed} / ${total}</span></div>
+      <div class="progress-track"><div class="progress-bar" style="width:${total ? completed / total * 100 : 0}%"></div></div>
+      <div class="muted">${completed === total ? "ตรวจครบทุกรายการ พร้อม Submit" : `ยังเหลือ ${total - completed} รายการ`}</div>
+    </section>
+
     <button class="submit-checksheet" id="submitButton">Submit Checksheet</button>
     <button class="secondary" id="backToOverview">กลับไปแก้ไข</button>
   `;
@@ -1127,8 +1151,8 @@ function renderSummary() {
   document.getElementById("submitButton").addEventListener("click", async () => {
     const missingInstrument = draft.instruments.filter(i => !isInstrumentDone(i)).length;
     const missingValve = draft.valves.filter(v => v.status !== "completed").length;
-    const flameAlarmWithoutComment = draft.instruments.some(
-      i => i.checkType === "flame" && i.flameStatus === "Alarm" && !i.flameComment
+    const flameStatusWithoutComment = draft.instruments.some(
+      i => i.checkType === "flame" && ["Alarm", "Problem"].includes(i.flameStatus) && !i.flameComment
     );
 
     if (missingInstrument + missingValve > 0) {
@@ -1136,8 +1160,8 @@ function renderSummary() {
       return;
     }
 
-    if (flameAlarmWithoutComment) {
-      notify("Flame Alarm ต้องมี Comment");
+    if (flameStatusWithoutComment) {
+      notify("Flame Alarm หรือปัญหา ต้องมี Comment");
       return;
     }
 
