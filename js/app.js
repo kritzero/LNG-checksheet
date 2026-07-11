@@ -338,7 +338,7 @@ function renderInstrumentAction() {
     <label class="action-card">
       <h3>📷 ถ่ายรูปและอ่านค่าด้วย AI</h3>
       <p>เปิดกล้องหลังหรือเลือกรูปจากเครื่อง</p>
-      <input id="instrumentPhoto" type="file" accept="image/*" capture="environment">
+      <input id="instrumentPhoto" type="file" accept="image/*">
     </label>
 
     <div class="action-card" id="reportIssue">
@@ -355,17 +355,47 @@ function renderInstrumentAction() {
 }
 
 async function handleInstrumentPhoto(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
+  const input = event.target;
+  const file = input.files && input.files[0];
 
-  state.previewUrl = URL.createObjectURL(file);
-  notify("กำลังจำลอง AI อ่านค่า...");
-  const item = currentDraft().instruments[state.currentInstrumentIndex];
-  const result = await API.analyzePhoto(file, item);
+  if (!file) {
+    notify("ไม่ได้เลือกรูป");
+    return;
+  }
 
-  if (result.ok) {
-    state.aiValue = result.value;
+  if (!file.type.startsWith("image/")) {
+    notify("กรุณาเลือกไฟล์รูปภาพ");
+    input.value = "";
+    return;
+  }
+
+  try {
+    if (state.previewUrl) {
+      URL.revokeObjectURL(state.previewUrl);
+    }
+
+    state.previewUrl = URL.createObjectURL(file);
+    notify("กำลังจำลอง AI อ่านค่า...");
+
+    const item = currentDraft().instruments[state.currentInstrumentIndex];
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const result = await API.analyzePhoto(file, item);
+
+    if (!result || !result.ok) {
+      notify("อ่านรูปไม่สำเร็จ กรุณาลองใหม่");
+      return;
+    }
+
+    state.aiValue = result.value || "";
     navigate("instrumentReview");
+
+  } catch (error) {
+    console.error("Photo processing error:", error);
+    notify("เกิดข้อผิดพลาดในการอ่านรูป");
+  } finally {
+    input.value = "";
   }
 }
 
