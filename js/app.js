@@ -38,7 +38,8 @@ function freshDraft(site) {
       id: `valve-${index}`,
       masterOrder: index,
       status: "pending",
-      position: ""
+      position: "",
+      issueComment: ""
     })),
     comments: []
   };
@@ -57,7 +58,8 @@ function loadDraft(site) {
     }));
     draft.valves = (draft.valves || []).map((item, index) => ({
       ...item,
-      masterOrder: Number.isFinite(item.masterOrder) ? item.masterOrder : index
+      masterOrder: Number.isFinite(item.masterOrder) ? item.masterOrder : index,
+      issueComment: item.issueComment || ""
     }));
 
     return draft;
@@ -673,7 +675,7 @@ function renderValves() {
       <div class="progress-track">
         <div class="progress-bar" style="width:${total ? completed / total * 100 : 0}%"></div>
       </div>
-      <div class="muted">Pending อยู่ด้านบน • OPEN สีเขียว • CLOSE สีแดง</div>
+      <div class="muted">Pending อยู่ด้านบน • OPEN สีเขียว • CLOSE สีแดง • ปัญหา สีส้ม</div>
     </section>
     <div id="valveList"></div>
   `;
@@ -682,23 +684,28 @@ function renderValves() {
   const sorted = pendingFirst(draft.valves, item => item.status === "completed");
 
   sorted.forEach(({ item, originalIndex }) => {
+    const selectedState = item.position || "";
     const card = document.createElement("section");
-    card.className = `status-card ${item.position === "OPEN" ? "open" : item.position === "CLOSE" ? "close" : ""}`;
+    card.className = `status-card valve-card ${selectedState === "OPEN" ? "open" : selectedState === "CLOSE" ? "close" : selectedState === "PROBLEM" ? "problem" : ""}`;
     card.innerHTML = `
-      <h3>${escapeHtml(item.tag)}</h3>
-      <p class="muted">${escapeHtml(item.description || "")}</p>
+      <div class="valve-card-header">
+        <h3>${escapeHtml(item.tag)}</h3>
+        <button class="valve-problem ${selectedState === "PROBLEM" ? "active" : ""}" data-position="PROBLEM">ปัญหา</button>
+      </div>
+      ${item.description ? `<p class="muted">${escapeHtml(item.description)}</p>` : ""}
       <div class="segmented valve-actions">
-        <button class="open ${item.position === "OPEN" ? "active" : ""}" data-position="OPEN">🟢 OPEN</button>
-        <button class="close ${item.position === "CLOSE" ? "active" : ""}" data-position="CLOSE">🔴 CLOSE</button>
+        <button class="open ${selectedState === "OPEN" ? "active" : ""}" data-position="OPEN">OPEN</button>
+        <button class="close ${selectedState === "CLOSE" ? "active" : ""}" data-position="CLOSE">CLOSE</button>
       </div>
     `;
 
     card.querySelectorAll("[data-position]").forEach(button => {
       button.addEventListener("click", () => {
-        draft.valves[originalIndex].position = button.dataset.position;
+        const selected = button.dataset.position;
+        draft.valves[originalIndex].position = selected;
         draft.valves[originalIndex].status = "completed";
         saveDraft();
-        notify(`✅ ${item.tag}: ${button.dataset.position} Saved`);
+        notify(`✅ ${item.tag}: ${selected === "PROBLEM" ? "ปัญหา" : selected} Saved`);
         renderValves();
         scrollToTopSoon();
       });
