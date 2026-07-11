@@ -13,7 +13,8 @@ const state = {
   aiValue: "",
   pendingInstrumentPhotoDataUrl: "",
   editingCommentId: null,
-  pendingCommentImages: []
+  pendingCommentImages: [],
+  cameraStream: null
 };
 
 function restoreRuntimeState() {
@@ -35,7 +36,7 @@ function restoreRuntimeState() {
     state.cameraPending = Boolean(saved.cameraPending);
 
     const allowedPages = new Set([
-      "sites", "overview", "instruments", "instrumentAction", "instrumentManual",
+      "sites", "overview", "instruments", "instrumentAction", "instrumentCamera", "instrumentManual",
       "instrumentIssue", "flameCheck", "valves", "comments", "commentEditor", "summary"
     ]);
 
@@ -159,7 +160,17 @@ function notify(message) {
   setTimeout(() => toastElement.classList.add("hidden"), 1600);
 }
 
+function stopCameraStream() {
+  if (state.cameraStream) {
+    state.cameraStream.getTracks().forEach(track => track.stop());
+    state.cameraStream = null;
+  }
+}
+
 function navigate(page) {
+  if (state.page === "instrumentCamera" && page !== "instrumentCamera") {
+    stopCameraStream();
+  }
   state.page = page;
   saveRuntimeState();
   render();
@@ -200,6 +211,7 @@ function render() {
     overview: renderOverview,
     instruments: renderInstruments,
     instrumentAction: renderInstrumentAction,
+    instrumentCamera: renderInstrumentCamera,
     instrumentReview: renderInstrumentReview,
     instrumentManual: renderInstrumentManual,
     instrumentIssue: renderInstrumentIssue,
@@ -431,14 +443,6 @@ function renderInstrumentAction() {
     </div>
 
     <input
-      id="cameraInput"
-      type="file"
-      accept="image/*"
-      capture="environment"
-      hidden
-    >
-
-    <input
       id="galleryInput"
       type="file"
       accept="image/*"
@@ -453,14 +457,12 @@ function renderInstrumentAction() {
     <button class="secondary" id="backToInstrumentList">กลับ</button>
   `;
 
-  const cameraInput = document.getElementById("cameraInput");
   const galleryInput = document.getElementById("galleryInput");
 
   document.getElementById("takePhotoAction").addEventListener("click", () => {
     state.inputMethod = "camera";
-    state.cameraPending = true;
-    saveRuntimeState();
-    cameraInput.click();
+    state.cameraPending = false;
+    navigate("instrumentCamera");
   });
 
   document.getElementById("choosePhotoAction").addEventListener("click", () => {
@@ -470,7 +472,6 @@ function renderInstrumentAction() {
     galleryInput.click();
   });
 
-  cameraInput.addEventListener("change", handleInstrumentPhoto);
   galleryInput.addEventListener("change", handleInstrumentPhoto);
 
   document.getElementById("manualEntryAction").addEventListener("click", () => {
@@ -484,6 +485,111 @@ function renderInstrumentAction() {
   document.getElementById("backToInstrumentList").addEventListener("click", () => {
     navigate("instruments");
   });
+}
+
+function renderInstrumentCamera() {
+  const item = currentDraft().instruments[state.currentInstrumentIndex];
+  pageTitle.textContent = `ถ่ายรูป ${item.tag}`;
+
+  app.innerHTML = `
+    <section class="camera-panel">
+      <div class="camera-status" id="cameraStatus">กำลังเปิดกล้อง...</div>
+      <video id="cameraVideo" autoplay playsinline muted></video>
+      <canvas id="cameraCanvas" class="hidden"></canvas>
+      <div class="camera-actions">
+        <button class="secondary" id="cancelCameraButton">กลับ</button>
+        <button id="captureCameraButton" disabled>📷 ถ่ายภาพ</button>
+      </div>
+    </section>
+  `;
+
+  document.getElementById("cancelCameraButton").addEventListener("click", () => {
+    navigate("instrumentAction");
+  });
+
+  document.getElementById("captureCameraButton").addEventListener("click", captureFromCamera);
+  startInPageCamera();
+}
+
+async function startInPageCamera() {
+  const video = document.getElementById("cameraVideo");
+  const status = document.getElementById("cameraStatus");
+  const captureButton = document.getElementById("captureCameraButton");
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    status.textContent = "เบราว์เซอร์นี้ไม่รองรับกล้องในหน้าเว็บ กรุณาใช้เลือกรูปจากเครื่อง";
+    return;
+  }
+
+  try {
+    stopCameraStream();
+    state.cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    });
+    video.srcObject = state.cameraStream;
+    await video.play();
+    status.textContent = "จัดภาพให้อยู่ในกรอบ แล้วกดถ่ายภาพ";
+    captureButton.disabled = false;
+  } catch (error) {
+    console.error("Camera permission/open failed:", error);
+    status.textContent = "เปิดกล้องไม่ได้ กรุณาอนุญาต Camera หรือใช้เลือกรูปจากเครื่อง";
+    notify("เปิดกล้องไม่ได้");
+  }
+}
+
+async function captureFromCamera() {
+  const video = document.getElementById("cameraVideo");
+  const canvas = document.getElementById("cameraCanvas");
+
+  if (!video.videoWidth || !video.videoHeight) {
+    notify("กล้องยังไม่พร้อม กรุณารอสักครู่");
+    return;
+  }
+
+  const maxDimension = 1280;
+  const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  stopCameraStream();
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.78);
+  state.previewUrl = dataUrl;
+  state.pendingInstrumentPhotoDataUrl = dataUrl;
+  state.inputMethod = "camera";
+  state.cameraPending = false;
+  saveRuntimeState();
+
+  app.innerHTML = `
+    <section class="ai-loading-card">
+      <img class="photo-preview" src="${dataUrl}" alt="Instrument photo">
+      <div class="ai-spinner"></div>
+      <h3>AI กำลังอ่านค่า...</h3>
+      <p class="muted">กรุณารอสักครู่</p>
+    </section>
+  `;
+
+  try {
+    const item = currentDraft().instruments[state.currentInstrumentIndex];
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const blob = await (await fetch(dataUrl)).blob();
+    const file = new File([blob], `${item.tag}-${Date.now()}.jpg`, { type: "image/jpeg" });
+    const result = await API.analyzePhoto(file, item);
+
+    if (!result?.ok) {
+      notify("อ่านรูปไม่สำเร็จ กรุณาลองใหม่");
+      navigate("instrumentAction");
+      return;
+    }
+
+    state.aiValue = result.value || "";
+    navigate("instrumentReview");
+  } catch (error) {
+    console.error("Captured photo processing error:", error);
+    notify("เกิดข้อผิดพลาดในการอ่านรูป");
+    navigate("instrumentAction");
+  }
 }
 
 async function handleInstrumentPhoto(event) {
@@ -1117,6 +1223,3 @@ document.addEventListener("visibilitychange", () => {
 
 render();
 
-if (state.cameraPending) {
-  setTimeout(() => notify("กลับมาที่ Tag เดิมแล้ว กรุณาถ่ายรูปอีกครั้งหากรูปไม่ถูกส่งกลับ"), 350);
-}
